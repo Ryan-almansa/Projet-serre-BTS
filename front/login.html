@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Connexion - GreenHouse Connect</title>
+
+    <link rel="stylesheet" href="login.css">
+</head>
+<script>
+async function checkAuth() {
+    const token = localStorage.getItem("token");
+if(token){
+    try {
+        const response = await fetch("http://172.29.16.154/api/temp", {
+            method: "GET",
+            headers: {
+                "Authorization": "Bearer " + token
+            }
+        });
+
+        if (response.status === 200) {
+            window.location.href = "/";
+        }
+    } catch (err) {
+        localStorage.removeItem("token");
+        window.location.href = "/front/login.html";
+    }
+} 
+}
+
+checkAuth();
+</script>
+<body>
+
+<div class="login-container">
+    <h2>GreenHouse Connect</h2>
+
+    <div id="errorBox" class="error"></div>
+    <div id="successBox" class="success"></div>
+
+    <label>Login</label>
+    <input type="login" id="email" placeholder="" required>
+
+    <label>Mot de passe</label>
+    <input type="password" id="password" placeholder="••••••••" required>
+
+    <button onclick="login()">Se connecter</button>
+</div>
+
+<script src="login.js"></script>
+
+</body>
+</html>

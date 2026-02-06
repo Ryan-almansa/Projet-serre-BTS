@@ -53,8 +53,19 @@ function initializeEventListeners() {
 
 async function fetchSensorData() {
     try {
-        const response = await fetch(`${CONFIG.apiUrl}/temp`);
-        if (!response.ok) throw new Error('Erreur réseau');
+        const token = localStorage.getItem("token");
+
+        const response = await fetch(`${CONFIG.apiUrl}/temp`, {
+            headers: {
+                "Authorization": `Bearer ${token}`
+            }
+        });
+
+        if (response.status === 401) {
+            localStorage.removeItem("token");
+            window.location.href = "login.html";
+            return;
+        }
 
         const data = await response.json();
 
@@ -63,11 +74,13 @@ async function fetchSensorData() {
         });
 
         updateConnectionStatus(true);
+
     } catch (error) {
-        console.error('Erreur lors de la récupération des données:', error);
+        console.error("Erreur API :", error);
         updateConnectionStatus(false);
     }
 }
+
 
 function startDataPolling() {
     fetchSensorData();

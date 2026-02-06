@@ -7,16 +7,43 @@ const mysql = require('mysql');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
-const http = require('http');
 const Modbus = require('jsmodbus');
 const net = require('net');
-
+const bodyParser = require('body-parser');
 dotenv.config();
+
+const app = express();
+
+app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
 
 const PORT = process.env.PORT;
 const JWT_SECRET = process.env.CODE;
 
-// ---------------- JWT ----------------
+// ========================================
+// 🔌 Connexion MySQL
+// ========================================
+
+const db = mysql.createConnection({
+  host: process.env.DB_HOST,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME,
+});
+
+db.connect(err => {
+  if (err) {
+    console.error('Erreur de connexion MySQL :', err.message);
+  } else {
+    console.log('Connecté à la base de données MySQL');
+  }
+});
+
+// ========================================
+// 🔐 JWT
+// ========================================
 
 function extractToken(req) {
   const authHeader = req.headers.authorization || '';
@@ -25,8 +52,8 @@ function extractToken(req) {
 }
 
 const revokedTokens = new Set();
-function revokeToken(jti) { if (jti) revokedTokens.add(jti); }
-function isRevoked(jti) { return jti && revokedTokens.has(jti); }
+function revokeToken(jti) { revokedTokens.add(jti); }
+function isRevoked(jti) { return revokedTokens.has(jti); }
 
 function authMiddleware(req, res, next) {
   const token = extractToken(req);
@@ -34,7 +61,9 @@ function authMiddleware(req, res, next) {
 
   try {
     const payload = jwt.verify(token, JWT_SECRET);
-    if (isRevoked(payload.jti)) return res.status(401).json({ success: false, message: 'Token révoqué' });
+    if (isRevoked(payload.jti)) {
+      return res.status(401).json({ success: false, message: 'Token révoqué' });
+    }
     req.user = payload;
     next();
   } catch (err) {
@@ -42,7 +71,95 @@ function authMiddleware(req, res, next) {
   }
 }
 
-// ---------------- MODBUS : lecture température ----------------
+// ========================================
+// 🔐 Route LOGIN
+// ========================================
+
+app.post('/api/login', (req, res) => {
+  const { login, password } = req.body;
+  if (!login || !password) {
+    return res.status(400).json({ success: false, message: 'Login et mot de passe requis' });
+  }
+
+  const query = 'SELECT * FROM Utilisateur WHERE login = ?';
+  db.query(query, [login], (err, results) => {
+    if (err) {
+      console.error('Erreur lors de la requête MySQL :', err.message);
+      return res.status(500).json({ success: false, message: 'Erreur serveur' });
+    }
+
+    if (results.length === 0) {
+      return res.status(401).json({ success: false, message: 'Nom d\'utilisateur inexistant' });
+    }
+
+    const user = results[0];
+    bcrypt.compare(password, user.mdp, (err, isMatch) => {
+      if (err) {
+        console.error('Erreur lors de la comparaison des mots de passe :', err.message);
+        return res.status(500).json({ success: false, message: 'Erreur serveur' });
+      }
+
+      if (!isMatch) {
+        return res.status(401).json({ success: false, message: 'Nom d\'utilisateur ou mot de passe incorrect' });
+      }
+
+      const jti = uuidv4();
+      const payload = { sub: user.Id || user.id || user.ID, login: user.Login, jti };
+      const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '4h' });
+
+      return res.json({ success: true, message: 'Connexion réussie', token });
+    });
+  });
+});
+
+// Route d'inscription
+app.post('/api/inscription', (req, res) => {
+  const { prenom, nom, email, username, password } = req.body;
+  if (!prenom || !nom || !email || !username || !password) {
+    return res.status(400).json({ success: false, message: 'Tous les champs sont requis' });
+  }
+
+  const checkQuery = 'SELECT * FROM Utilisateur WHERE Login = ? OR Mail = ?';
+  db.query(checkQuery, [username, email], (err, results) => {
+    if (err) {
+      console.error('Erreur lors de la requête MySQL :', err.message);
+      return res.status(500).json({ success: false, message: 'Erreur serveur' });
+    }
+
+    if (results.length > 0) {
+      return res.status(409).json({ success: false, message: 'Nom d\'utilisateur ou email déjà utilisé' });
+    }
+
+    bcrypt.hash(password, 10, (err, hashedPassword) => {
+      if (err) {
+        console.error('Erreur lors du hachage du mot de passe :', err.message);
+        return res.status(500).json({ success: false, message: 'Erreur serveur' });
+      }
+
+      const insertQuery = 'INSERT INTO Utilisateur (nom, prenom, mail, login, mdp) VALUES (?, ?, ?, ?, ?)';
+      db.query(insertQuery, [nom, prenom, email, username, hashedPassword], (err, results) => {
+        if (err) {
+          console.error('Erreur lors de l\'insertion dans la base de données :', err.message);
+          return res.status(500).json({ success: false, message: 'Erreur serveur' });
+        }
+
+        // Récupérer l'ID inséré si besoin
+        const userId = results.insertId;
+        const jti = uuidv4();
+        const payload = { sub: userId, login: username, jti };
+        const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '4h' });
+
+        return res.json({ success: true, message: 'Inscription réussie', token });
+      });
+    });
+  });
+});
+
+
+
+// ========================================
+// 🌡️ Lecture Modbus : température
+// ========================================
 
 function getTemp() {
   return new Promise((resolve, reject) => {
@@ -56,7 +173,6 @@ function getTemp() {
 
     socket.on('connect', async () => {
       try {
-        // Lecture float32 → registre 19800 (S11)
         const temp = await client.readHoldingRegisters(19800, 2);
 
         const buf = Buffer.alloc(4);
@@ -78,42 +194,26 @@ function getTemp() {
   });
 }
 
-// ---------------- EXPRESS ----------------
-
-const app = express();
+// ========================================
+// 🌍 EXPRESS
+// ========================================
 
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Fichiers statiques
 app.use(express.static('/var/www/html/Serre'));
 
-// ---------------- MySQL ----------------
-
-const db = mysql.createConnection({
-  host: process.env.DB_HOST,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME,
-});
-
-db.connect(err => {
-  if (err) {
-    console.error('Erreur de connexion MySQL :', err.message);
-  } else {
-    console.log('Connecté à la base de données MySQL');
-  }
-});
-
-// ---------------- ROUTES ----------------
-
+// Page principale
 app.get('/', (req, res) => {
   res.sendFile(path.join('/var/www/html/Serre/front', 'index.html'));
 });
 
-// 🌡️ Route API température
-app.get('/api/temp', async (req, res) => {
+// ========================================
+// 🌡️ Route API protégée
+// ========================================
+
+app.get('/api/temp', authMiddleware, async (req, res) => {
   try {
     const temperature = await getTemp();
     res.json({
@@ -128,7 +228,9 @@ app.get('/api/temp', async (req, res) => {
   }
 });
 
-// ---------------- START SERVER ----------------
+// ========================================
+// 🚀 START SERVER
+// ========================================
 
 app.listen(PORT, () => {
   console.log(`Serveur démarré sur le port ${PORT}`);

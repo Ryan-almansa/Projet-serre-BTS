@@ -7,6 +7,36 @@
     <link rel="stylesheet" href="/front/style.css">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&family=Montserrat:wght@400;600&display=swap" rel="stylesheet">
 </head>
+<script>
+async function checkAuth() {
+    const token = localStorage.getItem("token");
+
+    if (!token) {
+        window.location.href = "front/login.html";
+        return;
+    }
+
+    try {
+        const response = await fetch("http://172.29.16.154/api/temp", {
+            method: "GET",
+            headers: {
+                "Authorization": "Bearer " + token
+            }
+        });
+
+        if (response.status === 401) {
+            localStorage.removeItem("token");
+            window.location.href = "/front/login.html";
+        }
+    } catch (err) {
+        localStorage.removeItem("token");
+        window.location.href = "/front/login.html";
+    }
+}
+
+checkAuth();
+</script>
+
 <body>
     <!-- Navigation -->
     <nav class="navbar">
