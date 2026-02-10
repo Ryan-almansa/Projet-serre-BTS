@@ -45,6 +45,114 @@ function initializeEventListeners() {
             e.target.classList.add('active');
         });
     });
+
+    // Event listeners pour les sliders d'irrigation
+    const irrigationSlider = document.getElementById('irrigation-slider');
+    if (irrigationSlider) {
+        irrigationSlider.addEventListener('input', (e) => {
+            document.getElementById('irrigation-threshold').textContent = e.target.value;
+        });
+    }
+
+    // Event listeners pour les sliders d'éclairage
+    const lightingSlider = document.getElementById('lighting-slider');
+    if (lightingSlider) {
+        lightingSlider.addEventListener('input', (e) => {
+            document.getElementById('lighting-intensity').textContent = e.target.value;
+        });
+    }
+
+    // Event listeners pour les sliders de ventilation
+    const ventilationSlider = document.getElementById('ventilation-slider');
+    if (ventilationSlider) {
+        ventilationSlider.addEventListener('input', (e) => {
+            document.getElementById('ventilation-speed').textContent = e.target.value;
+        });
+    }
+
+    // Event listeners pour les sliders de chauffage
+    const heatingSlider = document.getElementById('heating-slider');
+    if (heatingSlider) {
+        heatingSlider.addEventListener('input', (e) => {
+            document.getElementById('heating-target').textContent = e.target.value;
+        });
+    }
+
+    // Boutons Appliquer
+    const irrigationApplyBtn = document.getElementById('irrigation-apply');
+    if (irrigationApplyBtn) {
+        irrigationApplyBtn.addEventListener('click', () => {
+            const value = document.getElementById('irrigation-slider').value;
+            applyControlSettings('irrigation', value);
+        });
+    }
+
+    const lightingApplyBtn = document.getElementById('lighting-apply');
+    if (lightingApplyBtn) {
+        lightingApplyBtn.addEventListener('click', () => {
+            const value = document.getElementById('lighting-slider').value;
+            applyControlSettings('lighting', value);
+        });
+    }
+
+    const ventilationApplyBtn = document.getElementById('ventilation-apply');
+    if (ventilationApplyBtn) {
+        ventilationApplyBtn.addEventListener('click', () => {
+            const value = document.getElementById('ventilation-slider').value;
+            applyControlSettings('ventilation', value);
+        });
+    }
+
+    const heatingApplyBtn = document.getElementById('heating-apply');
+    if (heatingApplyBtn) {
+        heatingApplyBtn.addEventListener('click', () => {
+            const value = document.getElementById('heating-slider').value;
+            applyControlSettings('heating', value);
+        });
+    }
+}
+
+// ========================================
+// APPLICATION DES PARAMÈTRES DE CONTRÔLE
+// ========================================
+
+async function applyControlSettings(controlType, value) {
+    try {
+        const token = localStorage.getItem("token");
+        
+        const payload = {
+            type: controlType,
+            value: parseFloat(value)
+        };
+
+        const response = await fetch(`${CONFIG.apiUrl}/control`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (response.ok) {
+            console.log(`Paramètre ${controlType} appliqué avec succès:`, value);
+            showNotification(`${controlType} appliqué: ${value}`, 'success');
+        } else {
+            console.error('Erreur lors de l\'application du paramètre');
+            showNotification('Erreur lors de l\'application du paramètre', 'error');
+        }
+    } catch (error) {
+        console.error('Erreur lors de l\'envoi du paramètre:', error);
+        showNotification('Erreur de connexion', 'error');
+    }
+}
+
+function showNotification(message, type = 'info') {
+    // Créer une notification simple dans la console pour le moment
+    console.log(`[${type.toUpperCase()}] ${message}`);
+    
+    // Vous pouvez aussi ajouter une notification visuelle (toast) ici
+    // Par exemple, ajouter un élément DOM temporaire et le supprimer après quelques secondes
 }
 
 // ========================================

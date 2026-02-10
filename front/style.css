@@ -589,6 +589,30 @@ body {
     box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
 }
 
+/* Bouton Appliquer */
+.apply-btn {
+    margin-top: 0.75rem;
+    padding: 0.6rem 1.2rem;
+    background: linear-gradient(135deg, var(--primary-green), var(--secondary-green));
+    color: white;
+    border: none;
+    border-radius: var(--radius-sm);
+    font-weight: 600;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    box-shadow: 0 2px 8px rgba(76, 175, 80, 0.3);
+}
+
+.apply-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(76, 175, 80, 0.5);
+}
+
+.apply-btn:active {
+    transform: translateY(0);
+}
+
 /* ========================================
    CHARTS SECTION
 ======================================== */

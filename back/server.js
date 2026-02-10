@@ -11,6 +11,7 @@ const Modbus = require('jsmodbus');
 const net = require('net');
 const bodyParser = require('body-parser');
 dotenv.config();
+const TCW241 = require('./TCW241.js');
 
 const app = express();
 
@@ -161,7 +162,7 @@ app.post('/api/inscription', (req, res) => {
 // 🌡️ Lecture Modbus : température
 // ========================================
 
-function getTemp() {
+async function get() {
   return new Promise((resolve, reject) => {
     const serverIP = process.env.serverIP;
     const portMod = process.env.portMod;
@@ -173,16 +174,40 @@ function getTemp() {
 
     socket.on('connect', async () => {
       try {
-        const temp = await client.readHoldingRegisters(19800, 2);
+        const tcw = new TCW241();
 
-        const buf = Buffer.alloc(4);
-        buf.writeUInt16BE(temp.response._body.valuesAsArray[0], 0);
-        buf.writeUInt16BE(temp.response._body.valuesAsArray[1], 2);
+        // Température 1‑Wire
+        const tempReg = await client.readHoldingRegisters(19800, 2);
+        const bufTemp = Buffer.alloc(4);
+        bufTemp.writeUInt16BE(tempReg.response._body.valuesAsArray[0], 0);
+        bufTemp.writeUInt16BE(tempReg.response._body.valuesAsArray[1], 2);
+        tcw.setTemperature(bufTemp.readFloatBE(0));
 
-        const temperature = buf.readFloatBE(0);
+        // Humidité AI1
+        const h1Reg = await client.readHoldingRegisters(17500, 2);
+        const bufH1 = Buffer.alloc(4);
+        bufH1.writeUInt16BE(h1Reg.response._body.valuesAsArray[0], 0);
+        bufH1.writeUInt16BE(h1Reg.response._body.valuesAsArray[1], 2);
+        const h1 = (bufH1.readFloatBE(0) / 5) * 100;
+
+        // Humidité AI2
+        const h2Reg = await client.readHoldingRegisters(17502, 2);
+        const bufH2 = Buffer.alloc(4);
+        bufH2.writeUInt16BE(h2Reg.response._body.valuesAsArray[0], 0);
+        bufH2.writeUInt16BE(h2Reg.response._body.valuesAsArray[1], 2);
+        const h2 = (bufH2.readFloatBE(0) / 5) * 100;
+
+        // Humidité AI3
+        const h3Reg = await client.readHoldingRegisters(17504, 2);
+        const bufH3 = Buffer.alloc(4);
+        bufH3.writeUInt16BE(h3Reg.response._body.valuesAsArray[0], 0);
+        bufH3.writeUInt16BE(h3Reg.response._body.valuesAsArray[1], 2);
+        const h3 = (bufH3.readFloatBE(0) / 5) * 100;
+
+        tcw.setHumidites(h1, h2, h3);
 
         socket.end();
-        resolve(temperature);
+        resolve(tcw.toJSON());
 
       } catch (err) {
         socket.end();
@@ -193,6 +218,7 @@ function getTemp() {
     socket.on('error', reject);
   });
 }
+
 
 // ========================================
 // 🌍 EXPRESS
@@ -213,18 +239,12 @@ app.get('/', (req, res) => {
 // 🌡️ Route API protégée
 // ========================================
 
-app.get('/api/temp', authMiddleware, async (req, res) => {
+app.get('/api/info', authMiddleware, async (req, res) => {
   try {
-    const temperature = await getTemp();
-    res.json({
-      success: true,
-      temperature: temperature.toFixed(2)
-    });
+    const data = await get();
+    res.json({ success: true, ...data });
   } catch (err) {
-    res.status(500).json({
-      success: false,
-      error: err.message
-    });
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
