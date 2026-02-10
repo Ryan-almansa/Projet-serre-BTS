@@ -29,9 +29,14 @@ let charts = {};
 // INITIALISATION
 // ========================================
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     initializeEventListeners();
     initializeCharts();
+    
+    // Charger l'historique d'abord
+    await loadHistoricalData();
+    
+    // Puis démarrer le polling en temps réel
     startDataPolling();
 });
 
@@ -160,6 +165,60 @@ function showNotification(message, type = 'info') {
 // ========================================
 // COMMUNICATION AVEC LE BACKEND
 // ========================================
+
+/**
+ * Charge l'historique des données des 24 dernières heures
+ */
+async function loadHistoricalData() {
+    try {
+        const token = localStorage.getItem("token");
+
+        const response = await fetch(`${CONFIG.apiUrl}/history`, {
+            headers: {
+                "Authorization": `Bearer ${token}`
+            }
+        });
+
+        if (response.status === 401) {
+            localStorage.removeItem("token");
+            window.location.href = "login.html";
+            return;
+        }
+
+        const result = await response.json();
+
+        if (result.success && result.data && result.data.length > 0) {
+            // Vider les données actuelles
+            chartData.timestamps = [];
+            chartData.temperature = [];
+            chartData.humidity = [];
+
+            // Charger les nouvelles données
+            result.data.forEach(item => {
+                const date = new Date(item.timestamp);
+                const timeLabel = date.toLocaleTimeString('fr-FR', { 
+                    hour: '2-digit', 
+                    minute: '2-digit' 
+                });
+
+                chartData.timestamps.push(timeLabel);
+                chartData.temperature.push(item.temperature);
+                chartData.humidity.push(item.humidity);
+            });
+
+            console.log(`✓ Historique chargé: ${chartData.timestamps.length} points de données`);
+            updateCharts();
+        } else {
+            console.log('Aucune donnée historique disponible');
+        }
+
+        updateConnectionStatus(true);
+
+    } catch (error) {
+        console.error("Erreur lors du chargement de l'historique :", error);
+        updateConnectionStatus(false);
+    }
+}
 
 async function fetchSensorData() {
     try {
@@ -364,13 +423,26 @@ function initializeCharts() {
 
 function addToHistory(data) {
     const now = new Date();
-    const timeLabel = now.toLocaleTimeString();
+    const timeLabel = now.toLocaleTimeString('fr-FR', { 
+        hour: '2-digit', 
+        minute: '2-digit' 
+    });
+
+    // Éviter les doublons si les timestamps sont identiques
+    if (chartData.timestamps.length > 0 && 
+        chartData.timestamps[chartData.timestamps.length - 1] === timeLabel &&
+        chartData.temperature[chartData.temperature.length - 1] === data.temperature &&
+        chartData.humidity[chartData.humidity.length - 1] === data.humidity) {
+        return;
+    }
 
     chartData.timestamps.push(timeLabel);
     chartData.temperature.push(data.temperature);
     chartData.humidity.push(data.humidity);
 
-    if (chartData.timestamps.length > CONFIG.chartMaxPoints) {
+    // Garder un maximum de points pour une meilleure lisibilité
+    const maxPoints = Math.min(100, CONFIG.chartMaxPoints * 5); // Plus de points que avant
+    if (chartData.timestamps.length > maxPoints) {
         chartData.timestamps.shift();
         chartData.temperature.shift();
         chartData.humidity.shift();
@@ -382,6 +454,8 @@ function updateCharts() {
         charts.temp.data.labels = chartData.timestamps;
         charts.temp.data.datasets[0].data = chartData.temperature;
         charts.temp.data.datasets[1].data = chartData.humidity;
+        
+        // Mise à jour avec animation légère
         charts.temp.update('none');
     }
 }

@@ -39,8 +39,39 @@ db.connect(err => {
     console.error('Erreur de connexion MySQL :', err.message);
   } else {
     console.log('Connecté à la base de données MySQL');
+    
+    // Créer la table HistoriqueDonnees si elle n'existe pas
+    createHistoriqueDonneesTable();
   }
 });
+
+// ========================================
+// 📊 Création de la table HistoriqueDonnees
+// ========================================
+
+function createHistoriqueDonneesTable() {
+  const createTableQuery = `
+    CREATE TABLE IF NOT EXISTS HistoriqueDonnees (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      temperature DECIMAL(5, 2) NOT NULL,
+      humidite_sol DECIMAL(5, 2) NOT NULL,
+      humidite_air DECIMAL(5, 2) DEFAULT NULL,
+      luminosite INT DEFAULT NULL,
+      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_timestamp (timestamp),
+      INDEX idx_created_at (created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `;
+
+  db.query(createTableQuery, (err) => {
+    if (err) {
+      console.error('Erreur lors de la création de la table HistoriqueDonnees :', err.message);
+    } else {
+      console.log('✓ Table HistoriqueDonnees vérifiée/créée avec succès');
+    }
+  });
+}
 
 // ========================================
 // 🔐 JWT
@@ -218,7 +249,62 @@ app.get('/', (req, res) => {
 app.get('/api/info', authMiddleware, async (req, res) => {
   try {
     const data = await get();
+    
+    // Insertion des données dans la base de données
+    const query = 'INSERT INTO HistoriqueDonnees (temperature, humidite_sol, timestamp) VALUES (?, ?, NOW())';
+    db.query(query, [data.temperature, data.humiditeSol], (err) => {
+      if (err) {
+        console.error('Erreur lors de l\'insertion dans HistoriqueDonnees :', err.message);
+      }
+    });
+    
     res.json({ success: true, ...data });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ========================================
+// 📊 Route pour l'historique des données (24h)
+// ========================================
+
+app.get('/api/history', authMiddleware, (req, res) => {
+  try {
+    const query = `
+      SELECT 
+        id,
+        temperature,
+        humidite_sol,
+        timestamp
+      FROM HistoriqueDonnees
+      WHERE timestamp >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
+      ORDER BY timestamp ASC
+      LIMIT 500
+    `;
+
+    db.query(query, (err, results) => {
+      if (err) {
+        console.error('Erreur lors de la récupération de l\'historique :', err.message);
+        return res.status(500).json({ success: false, error: 'Erreur lors de la récupération des données' });
+      }
+
+      if (!results || results.length === 0) {
+        return res.json({ 
+          success: true, 
+          data: [],
+          message: 'Aucune donnée historique disponible'
+        });
+      }
+
+      const formattedData = results.map(row => ({
+        id: row.id,
+        temperature: parseFloat(row.temperature),
+        humidity: parseFloat(row.humidite_sol),
+        timestamp: new Date(row.timestamp).toISOString()
+      }));
+
+      res.json({ success: true, data: formattedData });
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
